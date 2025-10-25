@@ -1,80 +1,120 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
-from database import db
+import sqlite3
+import asyncio
+
+DB_PATH = "tasks.db"
+
+# Словарь статусов
+STATUSES = ["надо сделать", "назначено", "выполнено"]
 
 class Tasks(commands.Cog):
-    """Работа с задачами: создание, взятие, выполнение, удаление, список."""
-
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
 
-    # --- Добавить задачу ---
-    @app_commands.command(name="добавить", description="Добавить новую задачу")
-    @app_commands.describe(key="Короткий ключ задачи", text="Описание задачи")
-    async def add(self, interaction: discord.Interaction, key: str, text: str):
-        try:
-            db.add_task(key, text, interaction.user.id)
-            await interaction.response.send_message(f"Задача '{key}' добавлена", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"Ошибка при добавлении: {e}", ephemeral=True)
+    # Вспомогательные функции для работы с БД
+    async def execute_db(self, query, params=(), fetch=False):
+        def db_task():
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            result = cursor.fetchall() if fetch else None
+            conn.commit()
+            conn.close()
+            return result
+        return await asyncio.to_thread(db_task)
 
-    # --- Взять задачу ---
-    @app_commands.command(name="взять", description="Взять задачу себе")
-    @app_commands.describe(key="Ключ задачи")
-    async def take(self, interaction: discord.Interaction, key: str):
-        success = db.take_task(key, interaction.user.id)
-        if success:
-            await interaction.response.send_message(f"Ты взял задачу '{key}'", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"Задача '{key}' недоступна или уже взята", ephemeral=True)
+    # Команда /добавить "ключ" "описание"
+    @commands.command(name="добавить")
+    async def add_task(self, ctx, key: str, *, description: str):
+        await self.execute_db(
+            "INSERT INTO tasks (key, description, author, status) VALUES (?, ?, ?, ?)",
+            (key, description, str(ctx.author), STATUSES[0])
+        )
+        await ctx.send(f"Задача '{key}' добавлена!")
 
-    # --- Снять задачу ---
-    @app_commands.command(name="снять", description="Снять задачу с себя")
-    @app_commands.describe(key="Ключ задачи")
-    async def drop(self, interaction: discord.Interaction, key: str):
-        success = db.remove_task_user(key, interaction.user.id)
-        if success:
-            await interaction.response.send_message(f"Ты снял задачу '{key}'", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"Ты не можешь снять эту задачу", ephemeral=True)
-
-    # --- Сделал задачу ---
-    @app_commands.command(name="сделал", description="Отметить задачу как выполненную")
-    @app_commands.describe(key="Ключ задачи")
-    async def done(self, interaction: discord.Interaction, key: str):
-        success = db.complete_task(key, interaction.user.id)
-        if success:
-            await interaction.response.send_message(f"Задача '{key}' выполнена", ephemeral=True)
-            # Тут можно добавить начисление рейтинга через rating.py
-        else:
-            await interaction.response.send_message(f"Ты не можешь выполнить эту задачу", ephemeral=True)
-
-    # --- Удалить задачу ---
-    @app_commands.command(name="удалить", description="Удалить задачу")
-    @app_commands.describe(key="Ключ задачи")
-    async def delete(self, interaction: discord.Interaction, key: str):
-        success = db.delete_task(key)
-        if success:
-            await interaction.response.send_message(f"Задача '{key}' удалена", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"Задача '{key}' не найдена", ephemeral=True)
-
-    # --- Список задач ---
-    @app_commands.command(name="задачи", description="Показать все задачи")
-    async def list_tasks(self, interaction: discord.Interaction):
-        tasks = db.list_tasks()
-        if not tasks:
-            await interaction.response.send_message("Список задач пуст", ephemeral=True)
+    # Команда /взять "ключ" — назначает текущего пользователя
+    @commands.command(name="взять")
+    async def take_task(self, ctx, key: str):
+        task = await self.execute_db(
+            "SELECT status FROM tasks WHERE key = ?",
+            (key,), fetch=True
+        )
+        if not task:
+            await ctx.send(f"Задача '{key}' не найдена.")
             return
+        status = task[0][0]
+        if status != STATUSES[0]:
+            await ctx.send(f"Задачу '{key}' уже кто-то взял.")
+            return
+        await self.execute_db(
+            "UPDATE tasks SET user = ?, status = ? WHERE key = ?",
+            (str(ctx.author), STATUSES[1], key)
+        )
+        await ctx.send(f"Вы взяли задачу '{key}'!")
 
+    # Команда /снять "ключ" — снимает пользователя
+    @commands.command(name="снять")
+    async def unassign_task(self, ctx, key: str):
+        task = await self.execute_db(
+            "SELECT user FROM tasks WHERE key = ?",
+            (key,), fetch=True
+        )
+        if not task:
+            await ctx.send(f"Задача '{key}' не найдена.")
+            return
+        if task[0][0] != str(ctx.author):
+            await ctx.send(f"Вы не можете снять эту задачу.")
+            return
+        await self.execute_db(
+            "UPDATE tasks SET user = NULL, status = ? WHERE key = ?",
+            (STATUSES[0], key)
+        )
+        await ctx.send(f"Вы сняли задачу '{key}'.")
+
+    # Команда /сделал "ключ" — отмечает выполненной
+    @commands.command(name="сделал")
+    async def complete_task(self, ctx, key: str):
+        task = await self.execute_db(
+            "SELECT user FROM tasks WHERE key = ?",
+            (key,), fetch=True
+        )
+        if not task:
+            await ctx.send(f"Задача '{key}' не найдена.")
+            return
+        if task[0][0] != str(ctx.author):
+            await ctx.send(f"Вы не можете завершить эту задачу.")
+            return
+        await self.execute_db(
+            "UPDATE tasks SET status = ? WHERE key = ?",
+            (STATUSES[2], key)
+        )
+        await ctx.send(f"Задача '{key}' выполнена!")
+
+    # Команда /удалить "ключ"
+    @commands.command(name="удалить")
+    async def delete_task(self, ctx, key: str):
+        await self.execute_db(
+            "DELETE FROM tasks WHERE key = ?",
+            (key,)
+        )
+        await ctx.send(f"Задача '{key}' удалена.")
+
+    # Команда /задачи — выводит список задач
+    @commands.command(name="задачи")
+    async def list_tasks(self, ctx):
+        tasks = await self.execute_db(
+            "SELECT key, description, author, user, status FROM tasks",
+            fetch=True
+        )
+        if not tasks:
+            await ctx.send("Задач нет.")
+            return
         msg = ""
-        for t in tasks:
-            user = f"<@{t[4]}>" if t[4] else "никто"
-            msg += f"{t[1]} — {t[2]} — автор: <@{t[3]}> — взял: {user} — статус: {t[5]}\n"
+        for key, desc, author, user, status in tasks:
+            user_str = user if user else "—"
+            msg += f"{key} | {status} | Автор: {author} | Исполнитель: {user_str}\nОписание: {desc}\n\n"
+        await ctx.send(f"Список задач:\n{msg}")
 
-        await interaction.response.send_message(msg, ephemeral=False)
-
-
-async def setup(bot: commands.Bot):
+async def setup(bot):
     await bot.add_cog(Tasks(bot))
