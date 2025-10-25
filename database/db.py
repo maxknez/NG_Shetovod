@@ -1,32 +1,95 @@
 import sqlite3
-import os
 from config.settings import DB_PATH
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
 def init_db():
-    """Создаёт таблицы, если они ещё не существуют."""
+    """Создаёт таблицу tasks, если её нет"""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT,
-        author_id INTEGER,
-        assigned_to INTEGER,
-        status TEXT DEFAULT 'в процессе'
-    )
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_ratings (
-        user_id INTEGER PRIMARY KEY,
-        rating INTEGER DEFAULT 0
+        key TEXT UNIQUE NOT NULL,
+        text TEXT NOT NULL,
+        author_id INTEGER NOT NULL,
+        user_id INTEGER,
+        status TEXT DEFAULT 'надо сделать'
     )
     """)
 
     conn.commit()
     conn.close()
+    print("База данных и таблица tasks готовы.")
+
+# --- Функции для управления задачами ---
+def add_task(key: str, text: str, author_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO tasks (key, text, author_id) VALUES (?, ?, ?)",
+        (key, text, author_id)
+    )
+    conn.commit()
+    conn.close()
+
+def take_task(key: str, user_id: int):
+    """Назначить задачу пользователю"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE tasks SET user_id = ?, status = 'назначено' WHERE key = ? AND user_id IS NULL", (user_id, key))
+    updated = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated > 0
+
+def remove_task_user(key: str, user_id: int):
+    """Снять задачу с пользователя"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE tasks SET user_id = NULL, status = 'надо сделать' WHERE key = ? AND user_id = ?", (key, user_id))
+    updated = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated > 0
+
+def complete_task(key: str, user_id: int):
+    """Отметить задачу как выполненную"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE tasks SET status = 'выполнено' WHERE key = ? AND user_id = ?", (key, user_id))
+    updated = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated > 0
+
+def delete_task(key: str):
+    """Удалить задачу"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tasks WHERE key = ?", (key,))
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return deleted > 0
+
+def list_tasks():
+    """Вернуть все задачи"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, key, text, author_id, user_id, status FROM tasks")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+# --- Тестовая проверка ---
+if __name__ == "__main__":
+    init_db()
+    add_task("тест", "Тестовая задача", 123456789)
+    take_task("тест", 111)
+    complete_task("тест", 111)
+    tasks = list_tasks()
+    for t in tasks:
+        print(t)
