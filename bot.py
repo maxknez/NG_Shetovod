@@ -1,4 +1,4 @@
-import discord
+import asyncio
 from discord.ext import commands
 from config.settings import TOKEN, VERSION
 from database.db import init_db
@@ -9,16 +9,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"Бот запущен (версия {VERSION}) — {bot.user}")
-    await bot.wait_until_ready()
-    # Можно написать в лог или канал "я жив!"
-    for guild in bot.guilds:
-        print(f"Подключён к серверу: {guild.name}")
+    # Можно здесь добавить сообщение в канал, что бот жив
 
-async def load_cogs():
-    await bot.load_extension("cogs.tasks")
-    await bot.load_extension("cogs.rating")
+# --- Асинхронная функция для загрузки Cogs ---
+async def main():
+    init_db()  # инициализация базы
+    async with bot:
+        await bot.load_extension("cogs.tasks")
+        await bot.load_extension("cogs.rating")
+        await bot.start(TOKEN)
 
+# Запуск
 if __name__ == "__main__":
-    init_db()
-    bot.loop.run_until_complete(load_cogs())
-    bot.run(TOKEN)
+    import asyncio
+    asyncio.run(main())
