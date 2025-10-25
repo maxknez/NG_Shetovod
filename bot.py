@@ -1,36 +1,24 @@
-import os
 import discord
-from discord import app_commands
-from dotenv import load_dotenv
+from discord.ext import commands
+from config.settings import TOKEN, VERSION
+from database.db import init_db
 
-# Загружаем переменные окружения
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-
-# Настройка клиента
 intents = discord.Intents.default()
-bot = discord.Client(intents=intents)
-tree = app_commands.CommandTree(bot)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Событие запуска
 @bot.event
 async def on_ready():
-    await tree.sync()
-    print(f"Бот {bot.user} запущен и готов к работе")
+    print(f"Бот запущен (версия {VERSION}) — {bot.user}")
+    await bot.wait_until_ready()
+    # Можно написать в лог или канал "я жив!"
+    for guild in bot.guilds:
+        print(f"Подключён к серверу: {guild.name}")
 
-    # Отправляем сообщение в указанный канал
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel:
-        await channel.send("я жив, сучки!")
-    else:
-        print("❗ Канал не найден. Проверь CHANNEL_ID в .env")
+async def load_cogs():
+    await bot.load_extension("cogs.tasks")
+    await bot.load_extension("cogs.rating")
 
-# Команда /пинг
-@tree.command(name="пинг", description="Проверить задержку бота")
-async def ping_command(interaction: discord.Interaction):
-    latency_ms = round(bot.latency * 1000)
-    await interaction.response.send_message(f"Понг! Задержка {latency_ms} мс")
-
-# Запуск бота
-bot.run(TOKEN)
+if __name__ == "__main__":
+    init_db()
+    bot.loop.run_until_complete(load_cogs())
+    bot.run(TOKEN)
