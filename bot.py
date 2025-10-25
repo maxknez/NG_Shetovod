@@ -1,24 +1,28 @@
+import os
 import discord
-from discord.ext import commands
+from discord import app_commands
+from dotenv import load_dotenv
 
-# Разрешаем доступ к содержимому сообщений
+# Загружаем токен из .env
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+# Настраиваем клиента
 intents = discord.Intents.default()
-intents.message_content = True
+bot = discord.Client(intents=intents)
+tree = app_commands.CommandTree(bot)
 
-# Создаём экземпляр бота с префиксом "!"
-bot = commands.Bot(command_prefix="!", intents=intents)
-
+# Событие запуска
 @bot.event
 async def on_ready():
-    print(f"✅ Бот {bot.user} успешно запущен!")
+    await tree.sync()
+    print(f"Бот {bot.user} запущен и готов к работе")
 
-@bot.command()
-async def привет(ctx):
-    await ctx.send(f"Привет, {ctx.author.display_name}! 👋")
+# Простая команда /пинг
+@tree.command(name="пинг", description="Проверить задержку бота")
+async def ping_command(interaction: discord.Interaction):
+    latency_ms = round(bot.latency * 1000)
+    await interaction.response.send_message(f"Понг! Задержка {latency_ms} мс")
 
-@bot.command()
-async def пинг(ctx):
-    await ctx.send(f"Понг! 🏓 {round(bot.latency * 1000)} мс")
-
-# Запуск бота (вставь сюда токен из Discord Developer Portal)
-bot.run("MTQzMTU5MDM0MjUxMTI5NjYzNQ.G35sT3.mhGO1mmsUbEJ7T00olRwz4jzgMxA8mP0kq9T88")
+# Запуск бота
+bot.run(TOKEN)
