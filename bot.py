@@ -10,11 +10,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-# Асинхронная инициализация базы данных
-async def setup_db():
-    await asyncio.to_thread(init_db)
-    print("База данных инициализирована!")
-
 # Событие при готовности бота
 @bot.event
 async def on_ready():
@@ -23,7 +18,9 @@ async def on_ready():
     print(f"Подключен к {len(bot.guilds)} серверам")
 
 async def main():
-    await setup_db()
+    # Инициализация базы данных
+    await init_db()  # Убрано asyncio.to_thread
+    print("База данных инициализирована!")
 
     # Здесь подключаем все cogs
     await bot.load_extension("cogs.tasks")
