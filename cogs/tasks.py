@@ -1,33 +1,35 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import database  # Импортируем наш модуль для работы с БД
+import database
 
 
 class Tasks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def _update_task_list(self):
+        """Внутренняя вспомогательная функция для обновления сообщения со списком задач."""
+        utils_cog = self.bot.get_cog("Utils")
+        if utils_cog:
+            await utils_cog.update_task_list_message()
+        else:
+            print("Ошибка: Ког 'Utils' не найден при попытке обновить список задач.")
+
     @app_commands.command(name="добавить", description="Добавить новую задачу с ключом и текстом")
     @app_commands.describe(key="Уникальный ключ для задачи (например, 'купить_хлеб')", task_text="Текст задачи")
     async def add_task_command(self, interaction: discord.Interaction, key: str, task_text: str):
         author_id = interaction.user.id
 
-        # Проверяем длину ключа
-        if len(key) > 50:  # Пример ограничения длины ключа
+        if len(key) > 50:
             await interaction.response.send_message(
                 "Ключ задачи слишком длинный. Пожалуйста, используйте до 50 символов.", ephemeral=True)
             return
 
-        # Проверяем, что ключ не содержит пробелов или специальных символов, если это требуется
-        # if not key.isalnum() and '_' not in key:
-        #     await interaction.response.send_message("Ключ задачи должен состоять только из букв, цифр и нижнего подчеркивания.", ephemeral=True)
-        #     return
-
-        if database.add_task(key.lower(), task_text,
-                             author_id):  # key.lower() для унификации, чтобы "КУПИТЬ_ХЛЕБ" и "купить_хлеб" были одним и тем же
+        if database.add_task(key.lower(), task_text, author_id):
             await interaction.response.send_message(
                 f"Задача с ключом `{key}` и текстом '{task_text}' успешно добавлена!", ephemeral=True)
+            await self._update_task_list()  # Обновляем список после добавления
         else:
             await interaction.response.send_message(
                 f"Задача с ключом `{key}` уже существует. Пожалуйста, выберите другой ключ.", ephemeral=True)
@@ -37,36 +39,22 @@ class Tasks(commands.Cog):
     async def delete_task_command(self, interaction: discord.Interaction, key: str):
         if database.delete_task_by_key(key.lower()):
             await interaction.response.send_message(f"Задача с ключом `{key}` успешно удалена.", ephemeral=True)
+            await self._update_task_list()  # Обновляем список после удаления
         else:
             await interaction.response.send_message(f"Задача с ключом `{key}` не найдена.", ephemeral=True)
 
     @app_commands.command(name="задачи", description="Показать список всех задач")
     async def list_all_tasks_command(self, interaction: discord.Interaction):
-        tasks = database.get_all_tasks()  # Получаем все задачи
-
-        if not tasks:
-            await interaction.response.send_message("Список задач пуст.", ephemeral=True)
-            return
-
-        task_list_str = "Список задач:\n"
-        # Для отображения автора, нам нужно получить имя пользователя по ID.
-        # Это требует запроса к API Discord, что может быть медленно для большого списка.
-        # Пока просто выводим ID, но можно расширить.
-        for key, text, author_id in tasks:
-            # Попытка получить объект пользователя, чтобы отобразить его имя
-            author_member = interaction.guild.get_member(author_id)  # Получаем пользователя из кэша гильдии
-            author_name = author_member.display_name if author_member else f"ID: {author_id}"
-
-            task_list_str += f"**`{key}`**: {text} (Автор: {author_name})\n"
-
-        # Проверяем, что сообщение не превышает лимит Discord (2000 символов)
-        if len(task_list_str) > 2000:
-            await interaction.response.send_message("Список задач слишком длинный. Отображены только первые задачи.",
+        # Эта команда просто вызывает функцию, которая уже делает то же самое
+        await self._update_task_list()
+        # Отправляем подтверждение, что список обновлен (или показываем пользователю прямо)
+        # Если ephemeral=True, то обновление основного сообщения невидимо для пользователя.
+        # Можно отправить ephemeral-ссылку на основное сообщение.
+        if settings.CHANNEL_ID:
+            await interaction.response.send_message(f"Список задач обновлен в канале <#{settings.CHANNEL_ID}>",
                                                     ephemeral=True)
-            # Можно реализовать пагинацию или отправку в файле
-            await interaction.followup.send(task_list_str[:1900] + "...", ephemeral=True)
         else:
-            await interaction.response.send_message(task_list_str, ephemeral=True)
+            await interaction.response.send_message("Список задач обновлен.", ephemeral=True)
 
 
 async def setup(bot):
