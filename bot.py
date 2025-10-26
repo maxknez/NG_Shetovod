@@ -1,34 +1,37 @@
 import discord
 from discord.ext import commands
-from config.settings import TOKEN, VERSION
-import asyncio
-from database.db import init_db
+import settings
+import database  # Импортируем наш модуль для работы с БД
 
-# Инициализация intents
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Событие при готовности бота
+
 @bot.event
 async def on_ready():
-    print(f"Бот {bot.user} запущен!")
-    print(f"Версия: {VERSION}")
-    print(f"Подключен к {len(bot.guilds)} серверам")
+    print(f"Бот запущен как {bot.user}")
+    print("Инициализация базы данных...")
+    database.init_db()  # Инициализируем базу данных при запуске бота
+    print("База данных инициализирована.")
 
-async def main():
-    # Инициализация базы данных
-    await init_db()  # Убрано asyncio.to_thread
-    print("База данных инициализирована!")
+    print("Загрузка когов...")
+    await bot.load_extension("cogs.utils")  # Ваш ког с командой ping
+    await bot.load_extension("cogs.tasks")  # Новый ког с командами для тасков
+    print("Коги загружены.")
 
-    # Здесь подключаем все cogs
-    await bot.load_extension("cogs.tasks")
-    await bot.load_extension("cogs.rating")
-    # await bot.load_extension("cogs.utils")
+    await bot.tree.sync()
+    # Если вы хотите синхронизировать только с конкретной гильдией для тестирования:
+    # await bot.tree.sync(guild=discord.Object(id=ID_ВАШЕЙ_ГИЛЬДИИ_ЗДЕСЬ))
+    print("Слеш-команды синхронизированы.")
+    print("Бот готов к работе!")
 
-    await bot.start(TOKEN)
 
-# Запуск бота
 if __name__ == "__main__":
-    asyncio.run(main())
+    if not settings.DISCORD_BOT_TOKEN:
+        print("Ошибка: Токен бота не найден в файле .env")
+        print("Пожалуйста, создайте файл .env и добавьте DISCORD_BOT_TOKEN=ВАШ_ТОКЕН")
+    else:
+        bot.run(settings.DISCORD_BOT_TOKEN)

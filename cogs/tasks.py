@@ -1,98 +1,73 @@
 import discord
 from discord.ext import commands
-import asyncio
-from database import db
+from discord import app_commands
+import database  # Импортируем наш модуль для работы с БД
+
 
 class Tasks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # Команда /добавить "ключ" "описание"
-    @commands.command(name="добавить")
-    async def add_task(self, ctx, key: str, *, description: str):
-        try:
-            await asyncio.to_thread(db.add_task, key, description, ctx.author.id)
-            await ctx.send(f"✅ Задача '{key}' добавлена!")
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка при добавлении задачи: {e}")
+    @app_commands.command(name="добавить", description="Добавить новую задачу с ключом и текстом")
+    @app_commands.describe(key="Уникальный ключ для задачи (например, 'купить_хлеб')", task_text="Текст задачи")
+    async def add_task_command(self, interaction: discord.Interaction, key: str, task_text: str):
+        author_id = interaction.user.id
 
-        # Команда /взять "ключ" — назначает текущего пользователя
-    @commands.command(name="взять")
-    async def take_task(self, ctx, key: str):
-        try:
-            success = await asyncio.to_thread(db.take_task, key, ctx.author.id)
-            if success:
-                await ctx.send(f"✅ Вы взяли задачу '{key}'!")
-            else:
-                await ctx.send(f"❌ Задача '{key}' не найдена или уже занята.")
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {e}")
+        # Проверяем длину ключа
+        if len(key) > 50:  # Пример ограничения длины ключа
+            await interaction.response.send_message(
+                "Ключ задачи слишком длинный. Пожалуйста, используйте до 50 символов.", ephemeral=True)
+            return
 
-        # Команда /снять "ключ" — снимает пользователя
-    @commands.command(name="снять")
-    async def unassign_task(self, ctx, key: str):
-        try:
-            success = await asyncio.to_thread(db.remove_task_user, key, ctx.author.id)
-            if success:
-                await ctx.send(f"✅ Вы сняли задачу '{key}'.")
-            else:
-                await ctx.send(f"❌ Задача '{key}' не найдена или не назначена на вас.")
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {e}")
+        # Проверяем, что ключ не содержит пробелов или специальных символов, если это требуется
+        # if not key.isalnum() and '_' not in key:
+        #     await interaction.response.send_message("Ключ задачи должен состоять только из букв, цифр и нижнего подчеркивания.", ephemeral=True)
+        #     return
 
-        # Команда /сделал "ключ" — отмечает выполненной
-    @commands.command(name="сделал")
-    async def complete_task(self, ctx, key: str):
-        try:
-            success = await asyncio.to_thread(db.complete_task, key, ctx.author.id)
-            if success:
-                await ctx.send(f"🎉 Задача '{key}' выполнена!")
-            else:
-                await ctx.send(f"❌ Задача '{key}' не найдена или не назначена на вас.")
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {e}")
+        if database.add_task(key.lower(), task_text,
+                             author_id):  # key.lower() для унификации, чтобы "КУПИТЬ_ХЛЕБ" и "купить_хлеб" были одним и тем же
+            await interaction.response.send_message(
+                f"Задача с ключом `{key}` и текстом '{task_text}' успешно добавлена!", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                f"Задача с ключом `{key}` уже существует. Пожалуйста, выберите другой ключ.", ephemeral=True)
 
-        # Команда /удалить "ключ"
-    @commands.command(name="удалить")
-    async def delete_task(self, ctx, key: str):
-        try:
-            success = await asyncio.to_thread(db.delete_task, key)
-            if success:
-                await ctx.send(f"✅ Задача '{key}' удалена.")
-            else:
-                await ctx.send(f"❌ Задача '{key}' не найдена.")
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {e}")
+    @app_commands.command(name="удалить", description="Удалить задачу по ключу")
+    @app_commands.describe(key="Ключ задачи, которую нужно удалить")
+    async def delete_task_command(self, interaction: discord.Interaction, key: str):
+        if database.delete_task_by_key(key.lower()):
+            await interaction.response.send_message(f"Задача с ключом `{key}` успешно удалена.", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"Задача с ключом `{key}` не найдена.", ephemeral=True)
 
-        # Команда /задачи — выводит список задач
-    @commands.command(name="задачи")
-    async def list_tasks(self, ctx):
-        try:
-            tasks = await asyncio.to_thread(db.list_tasks)
-            if not tasks:
-                await ctx.send("📋 Задач нет.")
-                return
-            
-            msg = "📋 **Список задач:**\n\n"
-            for task_id, key, text, author_id, user_id, status in tasks:
-                # Получаем пользователей по ID
-                author = await self.bot.fetch_user(author_id) if author_id else None
-                user = await self.bot.fetch_user(user_id) if user_id else None
-                
-                author_name = author.name if author else "Неизвестен"
-                user_name = user.name if user else "—"
-                
-                # Эмодзи для статуса
-                status_emoji = {"надо сделать": "⏳", "назначено": "👤", "выполнено": "✅"}
-                emoji = status_emoji.get(status, "❓")
-                
-                msg += f"{emoji} **{key}** | {status}\n"
-                msg += f"   Автор: {author_name} | Исполнитель: {user_name}\n"
-                msg += f"   Описание: {text}\n\n"
-            
-            await ctx.send(msg)
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка при получении задач: {e}")
+    @app_commands.command(name="задачи", description="Показать список всех задач")
+    async def list_all_tasks_command(self, interaction: discord.Interaction):
+        tasks = database.get_all_tasks()  # Получаем все задачи
+
+        if not tasks:
+            await interaction.response.send_message("Список задач пуст.", ephemeral=True)
+            return
+
+        task_list_str = "Список задач:\n"
+        # Для отображения автора, нам нужно получить имя пользователя по ID.
+        # Это требует запроса к API Discord, что может быть медленно для большого списка.
+        # Пока просто выводим ID, но можно расширить.
+        for key, text, author_id in tasks:
+            # Попытка получить объект пользователя, чтобы отобразить его имя
+            author_member = interaction.guild.get_member(author_id)  # Получаем пользователя из кэша гильдии
+            author_name = author_member.display_name if author_member else f"ID: {author_id}"
+
+            task_list_str += f"**`{key}`**: {text} (Автор: {author_name})\n"
+
+        # Проверяем, что сообщение не превышает лимит Discord (2000 символов)
+        if len(task_list_str) > 2000:
+            await interaction.response.send_message("Список задач слишком длинный. Отображены только первые задачи.",
+                                                    ephemeral=True)
+            # Можно реализовать пагинацию или отправку в файле
+            await interaction.followup.send(task_list_str[:1900] + "...", ephemeral=True)
+        else:
+            await interaction.response.send_message(task_list_str, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(Tasks(bot))
