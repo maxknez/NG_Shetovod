@@ -1,7 +1,12 @@
 import sqlite3
 from config.settings import DB_PATH
+import os
 
 def get_connection():
+    """Создаёт подключение к БД, создавая папку database если её нет"""
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir)
     return sqlite3.connect(DB_PATH)
 
 def init_db():
@@ -26,14 +31,20 @@ def init_db():
 
 # --- Функции для управления задачами ---
 def add_task(key: str, text: str, author_id: int):
+    """Добавить новую задачу"""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO tasks (key, text, author_id) VALUES (?, ?, ?)",
-        (key, text, author_id)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute(
+            "INSERT INTO tasks (key, text, author_id) VALUES (?, ?, ?)",
+            (key, text, author_id)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise ValueError(f"Задача с ключом '{key}' уже существует")
+    finally:
+        conn.close()
 
 def take_task(key: str, user_id: int):
     """Назначить задачу пользователю"""
@@ -75,11 +86,20 @@ def delete_task(key: str):
     conn.close()
     return deleted > 0
 
+def get_task(key: str):
+    """Получить задачу по ключу"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, key, text, author_id, user_id, status FROM tasks WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
 def list_tasks():
     """Вернуть все задачи"""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, key, text, author_id, user_id, status FROM tasks")
+    cursor.execute("SELECT id, key, text, author_id, user_id, status FROM tasks ORDER BY id")
     rows = cursor.fetchall()
     conn.close()
     return rows

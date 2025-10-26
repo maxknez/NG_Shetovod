@@ -1,9 +1,8 @@
 import discord
 from discord.ext import commands
 from config.settings import TOKEN, VERSION
-import os
-import sqlite3
 import asyncio
+from database.db import init_db
 
 # Инициализация intents
 intents = discord.Intents.default()
@@ -11,39 +10,17 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-DB_PATH = "tasks.db"
-
 # Асинхронная инициализация базы данных
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY,
-            key TEXT,
-            description TEXT,
-            author TEXT,
-            user TEXT,
-            status TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
 async def setup_db():
     await asyncio.to_thread(init_db)
-    print("База данных и таблица tasks готовы!")
+    print("База данных инициализирована!")
 
 # Событие при готовности бота
 @bot.event
 async def on_ready():
     print(f"Бот {bot.user} запущен!")
-    # Отправка сообщения на первый доступный канал
-    for guild in bot.guilds:
-        if guild.text_channels:
-            channel = guild.text_channels[0]
-            await channel.send("Я жив!")
-            break
+    print(f"Версия: {VERSION}")
+    print(f"Подключен к {len(bot.guilds)} серверам")
 
 async def main():
     await setup_db()
@@ -51,7 +28,7 @@ async def main():
     # Здесь подключаем все cogs
     await bot.load_extension("cogs.tasks")
     await bot.load_extension("cogs.rating")
-	#await bot.load_extension("cogs.utils")
+    # await bot.load_extension("cogs.utils")
 
     await bot.start(TOKEN)
 
