@@ -1,12 +1,9 @@
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
+from config.settings import TOKEN, VERSION
 import os
 import sqlite3
 import asyncio
-
-load_dotenv()
-TOKEN = os.getenv("TOKEN")
 
 # Инициализация intents
 intents = discord.Intents.default()
@@ -52,8 +49,9 @@ async def main():
     await setup_db()
 
     # Здесь подключаем все cogs
-    # await bot.load_extension("cogs.tasks")
-    # await bot.load_extension("cogs.rating")
+    await bot.load_extension("cogs.tasks")
+    await bot.load_extension("cogs.rating")
+	#await bot.load_extension("cogs.utils")
 
     await bot.start(TOKEN)
 
